@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 # ========== 配置 ==========
 SITE_URL = "https://www.gamer520.com/pcplay"
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-GITHUB_REPO = os.environ.get("GITHUB_REPO", "dandelion0422/gamer520-daily")
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "ilan3437/gamer520-daily")
 GITHUB_API = "https://api.github.com"
 
 # 飞书配置（从环境变量读取）
