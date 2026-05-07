@@ -1,0 +1,40 @@
+name: Gamer520 Daily Update
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Check if Feishu push needed
+        id: check_time
+        run: |
+          HOUR=$(date -u +%H)
+          if [ "$HOUR" = "12" ]; then
+            echo "SEND_FEISHU=true" >> $GITHUB_OUTPUT
+          else
+            echo "SEND_FEISHU=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run update script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ilan3437/gamer520-daily
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          SEND_FEISHU: ${{ steps.check_time.outputs.SEND_FEISHU }}
+        run: python update.py
