@@ -62,59 +62,85 @@ def extract_time_from_article(article):
     return ''
 
 def fetch_games():
-    import subprocess
     games = []
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-        'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': '"Windows"',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1',
+    
+    # 方案：使用 GitHub Actions 自带的 Chrome + Puppeteer
+    # 通过子进程调用 node 脚本获取页面内容
+    import subprocess
+    import tempfile
+    
+    # 创建 Puppeteer 脚本
+    puppeteer_script = '''
+const puppeteer = require('puppeteer');
+(async () => {
+    const browser = await puppeteer.launch({
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    });
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+    
+    const urls = process.argv.slice(2);
+    const results = [];
+    
+    for (const url of urls) {
+        try {
+            await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+            // 等待 Cloudflare 挑战完成
+            await new Promise(r => setTimeout(r, 3000));
+            const html = await page.content();
+            results.push(html);
+        } catch(e) {
+            results.push('');
+        }
     }
     
-    # 使用session保持cookies
-    session = requests.Session()
-    session.headers.update(headers)
+    console.log('===PAGE_START===');
+    for (const html of results) {
+        console.log('===PAGE===');
+        console.log(html);
+    }
+    console.log('===PAGE_END===');
     
-    for page in range(1, 6):
-        url = f"{SITE_URL}/page/{page}" if page > 1 else SITE_URL
-        print(f"抓取第{page}页...")
+    await browser.close();
+})();
+'''
+    
+    # 构建URL列表
+    urls = [SITE_URL] + [f"{SITE_URL}/page/{p}" for p in range(2, 6)]
+    
+    # 写入临时脚本文件
+    script_path = '/tmp/fetch_gamer520.js'
+    with open(script_path, 'w') as f:
+        f.write(puppeteer_script)
+    
+    # 安装 puppeteer（如果未安装）
+    subprocess.run(['npm', 'install', 'puppeteer'], 
+                   capture_output=True, timeout=120, cwd='/tmp')
+    
+    # 执行
+    print("使用 Puppeteer 抓取...")
+    result = subprocess.run(
+        ['node', script_path] + urls,
+        capture_output=True, text=True, timeout=180
+    )
+    
+    # 解析输出
+    output = result.stdout
+    pages = []
+    if '===PAGE_START===' in output and '===PAGE_END===' in output:
+        content = output.split('===PAGE_START===')[1].split('===PAGE_END===')[0]
+        pages = content.split('===PAGE===')[1:]  # 第一个是空的
+    
+    print(f"获取到 {len(pages)} 页内容")
+    
+    for page_idx, html in enumerate(pages):
+        page_num = page_idx + 1
+        print(f"处理第{page_num}页 (长度: {len(html)})...")
         
-        try:
-            resp = session.get(url, timeout=30, allow_redirects=True)
-            print(f"  状态码: {resp.status_code}, 长度: {len(resp.text)}")
-            
-            # 检测是否被Cloudflare拦截
-            if resp.status_code == 403 or 'Just a moment' in resp.text or 'challenge-platform' in resp.text:
-                print(f"  被Cloudflare拦截，尝试使用curl...")
-                try:
-                    result = subprocess.run(
-                        ['curl', '-s', '-L', '-A', headers['User-Agent'],
-                         '-H', 'Accept: text/html',
-                         '-H', 'Accept-Language: zh-CN,zh;q=0.9',
-                         '--compressed', url],
-                        capture_output=True, text=True, timeout=30
-                    )
-                    if result.returncode == 0 and len(result.stdout) > 1000:
-                        html = result.stdout
-                        print(f"  curl成功，长度: {len(html)}")
-                    else:
-                        print(f"  curl也失败")
-                        continue
-                except Exception as e:
-                    print(f"  curl异常: {e}")
-                    continue
-            else:
-                html = resp.text
+        if len(html) < 1000:
+            print(f"  内容太短，跳过")
+            continue
             
             # 获取页面整体时间
             all_hours = [int(t) for t in re.findall(r'(\d+)\s*小时前', html)]
