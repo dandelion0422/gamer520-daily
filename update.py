@@ -62,16 +62,59 @@ def extract_time_from_article(article):
     return ''
 
 def fetch_games():
+    import subprocess
     games = []
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+    }
+    
+    # 使用session保持cookies
+    session = requests.Session()
+    session.headers.update(headers)
     
     for page in range(1, 6):
         url = f"{SITE_URL}/page/{page}" if page > 1 else SITE_URL
         print(f"抓取第{page}页...")
         
         try:
-            resp = requests.get(url, timeout=20, headers=headers)
-            html = resp.text
+            resp = session.get(url, timeout=30, allow_redirects=True)
+            print(f"  状态码: {resp.status_code}, 长度: {len(resp.text)}")
+            
+            # 检测是否被Cloudflare拦截
+            if resp.status_code == 403 or 'Just a moment' in resp.text or 'challenge-platform' in resp.text:
+                print(f"  被Cloudflare拦截，尝试使用curl...")
+                try:
+                    result = subprocess.run(
+                        ['curl', '-s', '-L', '-A', headers['User-Agent'],
+                         '-H', 'Accept: text/html',
+                         '-H', 'Accept-Language: zh-CN,zh;q=0.9',
+                         '--compressed', url],
+                        capture_output=True, text=True, timeout=30
+                    )
+                    if result.returncode == 0 and len(result.stdout) > 1000:
+                        html = result.stdout
+                        print(f"  curl成功，长度: {len(html)}")
+                    else:
+                        print(f"  curl也失败")
+                        continue
+                except Exception as e:
+                    print(f"  curl异常: {e}")
+                    continue
+            else:
+                html = resp.text
             
             # 获取页面整体时间
             all_hours = [int(t) for t in re.findall(r'(\d+)\s*小时前', html)]
